@@ -1,6 +1,5 @@
 ---
 title: "ETH: METHOD III DATABASE"
-author: "Jüttner, D., Labarthe, S., Prastalo, N."
 date: "2026"
 output:
   pdf_document: default
