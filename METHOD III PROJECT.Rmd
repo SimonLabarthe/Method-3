@@ -1,406 +1,463 @@
 ---
-title: "METHOD III PROJECT"
-output: html_document
-date: "2026-04-17"
+title: "ETH: METHOD III PROJECT"
+author: Jüttner, D., Labarthe, S., Prastalo, N.
+date: '2026'
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 # DATA
 ```{r}
-setwd("C:/Users/Simon Labarthe/OneDrive/Documents/UNI/ETH/26a/Method III/Project/")
-setwd("C:/Users/Simon/OneDrive/Documents/UNI/ETH/26a/Method III/Project/")
-data <- read.csv("data")
-```
-
-## Nationalism (share of seat in parliament)
-```{r}
-#install.packages("remotes")  
-remotes::install_github("vdeminstitute/vdemdata")
-
-library(vdemdata)
 library(dplyr)
+library(readr)
 
-vp <- vparty %>% 
-  rename(country_code = country_text_id) %>% 
-  select(country_code, year, v2paseatshare) %>% 
-  group_by(country_code, year) %>%
-  summarise(
-    v2paseatshare = mean(v2paseatshare, na.rm = TRUE),
-    .groups = "drop"
-  )
-```
+rm(list=ls())
 
-## Bertoli replication
-```{r}
-url_data <- "https://raw.githubusercontent.com/AndrewBertoli/Nationalism-RD-Replication-Files/master/WorldCupData.csv"
-bertoli_data <- read.csv(url_data) %>% rename(country_name = Country, year = Year)
-```
+url_data <- "https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/data.csv"
+data <- read.csv(url_data) 
 
-## QOG
-```{r}
-qog <- read.csv("C:/Users/Simon Labarthe/OneDrive/Documents/UNI/ETH/26a/Method III/Project/qog_std_ts_jan26.csv") %>% 
-  rename(country_name = cname, 
-         country_code = ccodealp) %>% 
-  select(
-    country_name,
-    country_code,
-    year,
+data_more_balanced_3 <- data %>% 
+  filter(points_gap <= 3)
 
-    bicc_milper,        # Military Personnel Index 
-    bicc_milexp,        # Military Expenditure Index 
-    wdi_expmil,         # Military expenditure % of GDP 
+data_more_balanced_2 <- data %>% 
+  filter(points_gap <= 2)
 
-    wdi_pop,            # Total Population
-    wdi_popurb,         # Urban Population
-
-    wdi_birth,          # Birth Rate (per 1,000)
-    wdi_death,          # Death Rate (per 1,000)
-    wdi_mortinf,        # Infant Mortality (per 1,000 live births)
-    wdi_lifexp,         # Life Expectancy at birth
-
-    wpp_medianage,      # Median Age as of 1 July (WPP) 
-    wpp_sexratio,       # Sex Ratio: males per 100 females (WPP) 
-
-
-    wdi_export,         # Exports of goods & services (% of GDP)
-    wdi_import,         # Imports of goods & services (% of GDP)
-    gle_exp,          # Total Exports in millions current USD (Gleditsch)
-    gle_imp,          # Total Imports in millions current USD (Gleditsch)
-
-    wdi_area,           # Land area in sq. km 
-
-    wdi_eneuse,         # Energy use (kg of oil equivalent per capita)
-
-   vdem_polyarchy,   # Democracy level
-
-    ucdp_type3,         # Number of internal armed conflicts 
-
-    atop_number,        # Number of Alliances 
-    atop_ally           # Binary: member of any alliance 
-  )
-```
-
-## FIFA World Cup
-```{r}
-remotes::install_github("jfjelstul/worldcup")
-
-library(tidyverse)
-library(worldcup)
-library(lubridate)
-
-data("matches")
-data("tournaments")
-data("teams")
-data("qualified_teams")
-
-qualification_matches <- matches %>%
-  filter(stage_name == "group stage", 
-         grepl("Women", tournament_name)) %>% # Only males
-  mutate(
-    year = as.numeric(str_extract(tournament_name, "\\d{4}"))
-  )
-
-home_team_matches <- qualification_matches %>%
-  select(
-    tournament_id, 
-    year, 
-    match_id, 
-    match_date,
-    group_name, 
-    group_stage, 
-    stage_name,
-    team_id = home_team_id,
-    country_name = home_team_name,
-    team_code = home_team_code,
-    opponent_id = away_team_id,
-    opponent_name = away_team_name,
-    opponent_code = away_team_code,
-    goals_for = home_team_score,
-    goals_against = away_team_score,
-    win = home_team_win,
-    draw,
-    loss = away_team_win
-  ) %>%
-  mutate(
-    points = case_when(
-      win == 1 ~ 3,
-      draw == 1 ~ 1,
-      TRUE ~ 0
-    ),
-    goal_difference = goals_for - goals_against,
-    venue = "home"
-  )
-
-away_team_matches <- qualification_matches %>%
-  select(
-    tournament_id, 
-    year, 
-    match_id, 
-    match_date,
-    group_name, 
-    group_stage, 
-    stage_name,
-    team_id = away_team_id,
-    country_name = away_team_name,
-    team_code = away_team_code,
-    opponent_id = home_team_id,
-    opponent_name = home_team_name,
-    opponent_code = home_team_code,
-    goals_for = away_team_score,
-    goals_against = home_team_score,
-    win = away_team_win,
-    draw,
-    loss = home_team_win
-  ) %>%
-  mutate(
-    points = case_when(
-      win == 1 ~ 3,
-      draw == 1 ~ 1,
-      TRUE ~ 0
-    ),
-    goal_difference = goals_for - goals_against,
-    venue = "away"
-  )
-
-monadic_matches <- bind_rows(home_team_matches, 
-                             away_team_matches) %>%
-  arrange(year, 
-          group_name, 
-          country_name, 
-          match_date)
-
-qualification_standings <- monadic_matches %>%
-  group_by(year, group_name, team_id, country_name, team_code) %>%
-  summarise(
-    matches_played = n(),
-    wins = sum(win, na.rm = TRUE),
-    draws = sum(draw, na.rm = TRUE),
-    losses = sum(loss, na.rm = TRUE),
-    goals_for = sum(goals_for, na.rm = TRUE),
-    goals_against = sum(goals_against, na.rm = TRUE),
-    goal_difference = sum(goal_difference, na.rm = TRUE),
-    points = sum(points, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(year, group_name, desc(points), desc(goal_difference), desc(goals_for))
-
-qualification_standings <- qualification_standings %>%
-  group_by(year, group_name) %>%
-  mutate(
-    rank = row_number(),
-    teams_qualifying = case_when(
-      year <= 1970 ~ 1,  # Earlier tournaments had 1 qualifier per group
-      year <= 2300 ~ 2,  # Later tournaments had 2
-      TRUE ~ 2
-    ),
-    qualified = ifelse(rank <= teams_qualifying, 1, 0)
-  ) %>%
-  ungroup()
-
-tight_races <- qualification_standings %>%
-  rename(country_code = team_code) %>% 
-  group_by(year, group_name) %>%
-  mutate(
-    min_qualifier_points = min(points[qualified == 1], na.rm = TRUE),
-    max_non_qualifier_points = max(points[qualified == 0], na.rm = TRUE),
-    points_gap = min_qualifier_points - max_non_qualifier_points,
-    tie_at_cutoff = any(qualified == 1 & points == max_non_qualifier_points) |
-                    any(qualified == 0 & points == min_qualifier_points)
-  ) %>%
-  ungroup() %>%
-  filter(
-    (qualified == 1 & points == min_qualifier_points) |
-    (qualified == 0 & points == max_non_qualifier_points)
-  ) %>%
-  mutate(
-    treatment = case_when(
-      qualified == 1 ~ 1,
-      qualified == 0 ~ 0
-    ), 
-    points_diff = ifelse(
-      qualified == 1, points_gap, -points_gap
-    )
-  ) 
-```
-
-## Merge
-```{r}
-library(countries)
-
-data <- tight_races %>%
-  left_join(qog, by = c("country_code", "year")) %>%
-  left_join(vp, by = c("country_code", "year"))
-
-data <- data %>% 
-  mutate(
-    milex = wdi_expmil,
-    milex5yb = lag(milex, 5), 
-    milex3yb = lag(milex, 3), 
-    milex1yb = lag(milex, 1), 
-    milex5ya = lead(milex, 5), 
-    milex3ya = lead(milex, 3), 
-    milex1ya = lead(milex, 1), 
-    dmilex = round((milex-lag(milex, 1)), 
-                        digits = 2), 
-    dmilex5yb = lag(dmilex, 5),
-    dmilex3yb = lag(dmilex, 3),
-    dmilex1yb = lag(dmilex, 1),
-    dmilex5ya = lead(dmilex, 5), 
-    dmilex3ya = lead(dmilex, 3), 
-    dmilex1ya = lead(dmilex, 1)) %>% 
-  filter(!is.na(treatment), 
-         points_diff != "Inf") 
-
-summary(data)
-
-write.csv(data, "C:/Users/Simon/OneDrive/Documents/UNI/ETH/26a/Method III/Project/data.csv")
-
-data_NA <- data %>% na.omit()
+data_more_balanced_1 <- data %>% 
+  filter(points_gap <= 1)
 ```
 
 # CODE
-## scatter-plot of points margin on the military expenditures in first-winning/best-losing race (`qualified`). 
-
+## Covariates Visualization P-Value
 ```{r}
-library(dplyr)
-library(ggplot2)
+# datasets to test
+datasets <- c("data_more_balanced_3", "data_more_balanced_2", "data_more_balanced_1")
 
-y <- data$milex1ya
+# Covariates
+vars <- c("bicc_milper", 
+          "bicc_milexp", 
+          "bicc_gmi", 
+          "wdi_expmil", 
+          "wdi_pop", 
+          "wdi_popurb", 
+          "wdi_birth", 
+          "wdi_death", 
+          "wdi_mortinf", 
+          "wdi_lifexp", 
+          "wpp_medianage", 
+          "wpp_sexratio", 
+          "wdi_export",
+          "wdi_import", 
+          "wdi_gdpcapcon2015", 
+          "wdi_gdpgr", 
+          "wdi_area", 
+          "vdem_polyarchy", 
+          "ht_colonial", 
+          "atop_number",
+          "v2paseatshare")
 
-data %>%
-  ggplot(aes(x = points_diff, y = y, color = treatment)) +
-  geom_vline(xintercept = 0, color = "darkgrey", linetype = "dashed") +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  theme_bw() +
-  labs(x = "Points Margin", y = "Military Expenditures as % of GDP", color = "Result")
-```
-
-
-## Reproduce the result of Table 4, column 2 of Eggers and Hainmueller, when possible.  For Column 2 of Table 4, Eggers and Hainmueller restrict the sample to those races with a vote share between 35\% and 65\% (i.e. `wobl_margin` > -0.15 \& `wobl_margin` < 0.15) and use usual OLS regression with robust standard errors within this window.
-
-*Hint: Column 2 of Table 4 reports estimates from a regression with covariates. You can review the set of covariates used by the authors in Table 2. To compute (and output) heteroskedasticity-robust standard errors for your linear model, you can use the `lmtest` and `sandwich` packages. See the hint below.*
-
-```{r}
-library(lmtest)
-library(sandwich)
-
-data_bw5 <- data[data$points_diff > - 5 & data$points_diff < 5, ]
-
-reg1 <- lm(milex1ya ~ treatment, data = data_bw5)
-
-coeftest(reg1, vcov = vcovHC(reg1, type = "HC1"))
-```
-
-
-## Q4 data-driven method of selecting the optimal bandwidth for regression discontinuity designs. They conveniently provide software to implement their methods in the package `rdrobust`. Use their function `rdbwselect()` to find the optimal bandwidth for the Eggers and Hainmueller study, and then repeat the analysis from \textbf{Q3} using this bandwidth. You can leave all of the arguments for `rdbwselect()` at the default. You must call `summary()` on the object created by `rdbwselect()` to get the optimal bandwidth. Use the `BW est. (h)` reported by the call to `summary()`. 
-
-
-```{r}
-library(rdrobust)
-
-bw <- rdbwselect(y = data$milex1ya, x = data$points_diff)
-
-summary(bw)
-
-h_opt <- 0.061
-
-data_opt <- data[data$wobl_margin > - h_opt & data$wobl_margin < h_opt, ]
-
-q4_mod <- lm(lnrealgross ~ ., data = data_opt)
-
-coeftest(q4_mod, vcov = vcovHC(q4_mod, type = "HC1"))
-```
-
-
-
-## Q5 Placebo Outcomes:  use the characteristics of the race as the dependent variable. These include: `pre_wobl`, `wobl_race_electorate`, `wobl_race_turnout`, `wobl_race_number` and `prev_attempts`. Perform these placebo tests (balance checks) and discuss your estimates.   
-
-*Hint: for these placebo exercises, you can use the same bandwidth as in Question 3.*
-
-```{r}
-placebo_outcomes <- c("vdem_polyarchy", "ucdp_type3",                       "wdi_pop", "wdi_lifexp", "wdi_area")
-
-q5 <- lapply(
-  placebo_outcomes, function(outcome) {
-  
-    fmla <- as.formula(paste(outcome, "~ treatment + points_diff"))
-  
-    mod <- lm(fmla, data = data_bw5)
-  
-    ct <- coeftest(mod, vcov = vcovHC(mod, type = "HC1"))
-  
-    data.frame(
-      outcome = outcome, 
-      coef = ct["treated", "Estimate"], 
-      se = ct["treated", "Std. Error"], 
-      pval = ct["treated", "Pr(>|t|)"]
-      )
-  }
+better_names <- c(
+  "Military Personnel Index",
+  "Military Expenditure Index", 
+  "Global Militarization Index", 
+  "Military Expenditure (% of GDP)",
+  "Total Population",
+  "Urban Population",
+  "Birth Rate",
+  "Death Rate",
+  "Infant Mortality",
+  "Life Expectancy",
+  "Median Age",
+  "Sex Ratio",
+  "Exports (% of GDP)",
+  "Imports (% of GDP)",
+  "GDP per capita (constant 2015 US dollar)",
+  "GDP growth (annual %)",
+  "Land Area (sq km)",
+  "Democracy Level (VDEM)",
+   "Colonial Origin",
+  "Number of Alliances",
+  "Nationalism Seat Share"
 )
 
-placebo_table <- do.call(rbind, q5)
+for(d in datasets) {
+  data_current <- get(d)
+  balance_p <- rep(NA, length(vars))
 
-print(placebo_table, digits = 3)
+  for(i in seq_along(vars)){
+    temp_mod <- lm(
+      as.formula(paste(vars[i], "~ treatment")),
+      data = data_current[, c(vars[i], "treatment")]
+    )
+    balance_p[i] <- summary(temp_mod)$coefficients[2, 4]
+  }
+  
+  # Créer le dataframe pour le graphique
+  df <- data.frame(vars = vars, balance_p = balance_p, better_names = better_names)
+  df$y <- rank(-df$balance_p)
+  
+  # Afficher les p-values dans la console
+  cat("\n========== Dataset:", d, "==========\n")
+  print(data.frame(Variable = better_names, P_value = round(balance_p, 4)))
+  
+  # Créer le graphique
+  p <- ggplot(df, aes(x = balance_p, y = y)) +
+    geom_point(size = 2, color = "darkblue") +
+    scale_x_continuous(expand = c(0,0), limit = c(-0.01, 1.01), breaks = c(0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
+    xlab(expression(paste(italic("p"), "-value", sep = ""))) +
+    scale_y_continuous(breaks = df$y, labels = df$better_names) +
+    ylab(NULL) +
+    geom_vline(xintercept = 0.05, lty = 2, color = "red", linewidth = 0.8) +
+    geom_vline(xintercept = 0.10, lty = 2, color = "orange", linewidth = 0.8) +
+    labs(title = paste("Balance Test P-Values -", d),
+         subtitle = "Vertical lines: p=0.05 (red) and p=0.10 (orange)") +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(linewidth = 0.15, linetype = "dashed"))
+  
+  # Afficher le graphique
+  print(p)
+  
+  ggsave(paste0("balance_plot_", d, ".pdf"), p, width = 10, height = 8)
+}
 ```
 
-Do they increase or decrease the trust you put in a causal interpretation of the estimated RDD effect of serving in office on wealth?
-
-The RDD passed this confidence check because we found no substantial or statistically significant discontinuity in the variables at the selected threshold.
-
-# Q6
-
-Placebo Treatments:  Another sensitivity analysis for RDD uses non-discontinuity cutoffs (e.g. at vote share = 45\%) to test whether this placebo treatment produces any significant results.  Try different cutoffs and compare your placebo estimates to the estimated treatment effect from Q3. You can focus on the four placebo cut-offs used by the authors in Table 5.
-
-*Hint: For this type of falsification check, using a placebo threshold c_star, the sample should be split at the actual threshold (c). There is no need to set a bandwidth for the exercise: if you are testing a placebo threshold c_star to the right of your actual threshold c, you can simply use the relevant sub-sample (all observations i such that X_i>c), and vice versa if you select a c_star to the left of c.*
-
+## Covariates Visualization Mean Comparison
 ```{r}
-placebo_cutoffs <- c(-0.1, -0.05, 0.05, 0.1)
+# Covariates
+balance_results <- list()
 
-q6 <- lapply(placebo_cutoffs, function(c_star) {
-  if (c_star > 0) {
-    sub <- data[data$wobl_margin > 0, ]
-  } else {
-    sub <- data[data$wobl_margin < 0, ]
+for (d in datasets) { 
+  data_current <- get(d)
+  
+  balance_table <- data.frame(
+    variable = better_names,
+    control_mean = NA,
+    treatment_mean = NA
+    )
+
+
+  for (i in seq_along(vars)) {
+    v <- vars[i]
+    balance_table$treatment_mean[i] <- mean(data_current[[v]][data_current$treatment == 1], na.rm = TRUE)
+    balance_table$control_mean[i] <- mean(data_current[[v]][data_current$treatment == 0], na.rm = TRUE)
   }
 
-  sub$treat_placebo <- as.integer(sub$wobl_margin > c_star)
-  sub$run_centred   <- sub$wobl_margin - c_star   # FIX: one consistent name
+  balance_table <- balance_table %>%
+    mutate(
+      difference = treatment_mean - control_mean,
+      treatment_mean = round(treatment_mean, 2),
+      control_mean = round(control_mean, 2),
+      difference = round(difference, 2)
+    )
 
-  mod <- lm(lnrealgross ~ treat_placebo + run_centred, data = sub)
-  ct  <- coeftest(mod, vcov = vcovHC(mod, type = "HC1"))
+    balance_results[[d]] <- balance_table
+ 
+}
 
-  data.frame(
-    cutoff = c_star,
-    coef   = ct["treat_placebo", "Estimate"],   # FIX: was "treated"
-    se     = ct["treat_placebo", "Std. Error"],
-    pval   = ct["treat_placebo", "Pr(>|t|)"]
-  )
-})
-
-placebo_cutoff_table <- do.call(rbind, q6)
-print(placebo_cutoff_table, digits = 3)
+balance_results[["data_more_balanced_1"]]
+balance_results[["data_more_balanced_2"]]
+balance_results[["data_more_balanced_3"]]
 ```
-
-
-# Q7
-
-Test for sorting at the threshold both graphically and with a statistical test (Hint: the @McCrary2008 test).  Describe and explain your finding.
 
 ```{r}
-library(rddensity)
+## Figure 2: Balance Table — data_more_balanced_1
+library(ggplot2)
+library(dplyr)
+library(cowplot)
 
-rdd_dens <- rddensity(X = data$wobl_margin, c = 0)
+# ---- 0. Config ----
+data_current <- data_more_balanced_1
 
-summary(rdd_dens)
+vars <- c("bicc_milper", "bicc_milexp", "bicc_gmi", "wdi_expmil",
+          "wdi_pop", "wdi_popurb", "wdi_birth", "wdi_death", "wdi_mortinf",
+          "wdi_lifexp", "wpp_medianage", "wpp_sexratio", "wdi_export",
+          "wdi_import", "wdi_gdpcapcon2015", "wdi_gdpgr", "wdi_area",
+          "vdem_polyarchy", "ht_colonial", "atop_number", "v2paseatshare")
 
-rdplotdensity(rdd_dens, data$wobl_margin)
+better_names <- c(
+  "Military Personnel Index", "Military Expenditure Index",
+  "Global Militarization Index", "Military Expenditure (% GDP)",
+  "Total Population", "Urban Population", "Birth Rate", "Death Rate",
+  "Infant Mortality", "Life Expectancy", "Median Age", "Sex Ratio",
+  "Exports (% GDP)", "Imports (% GDP)",
+  "GDP per capita (2015 USD)", "GDP growth (%)",
+  "Land Area (sq km)", "Democracy Level (VDEM)",
+  "Colonial Origin", "Number of Alliances", "Nationalism Seat Share"
+)
+
+# ---- 1. Compute means & paired t-test p-values ----
+# Pair qualifier vs non-qualifier within the same group × year
+results <- lapply(seq_along(vars), function(i) {
+  v <- vars[i]
+  
+  qual <- data_current %>%
+    filter(treatment == 1) %>%
+    select(year, group_name, val = all_of(v)) %>%
+    arrange(year, group_name)
+  
+  nonq <- data_current %>%
+    filter(treatment == 0) %>%
+    select(year, group_name, val = all_of(v)) %>%
+    arrange(year, group_name)
+  
+  # Keep only groups that have both a qualifier and non-qualifier
+  paired <- inner_join(qual, nonq, by = c("year", "group_name"),
+                       suffix = c("_q", "_nq"))
+  
+  p_val <- tryCatch(
+    t.test(paired$val_q, paired$val_nq, paired = TRUE)$p.value,
+    error = function(e) NA_real_
+  )
+  
+  data.frame(
+    var_name     = better_names[i],
+    q_mean       = mean(data_current[[v]][data_current$treatment == 1], na.rm = TRUE),
+    nq_mean      = mean(data_current[[v]][data_current$treatment == 0], na.rm = TRUE),
+    p_value      = p_val
+  )
+}) %>% bind_rows()
+
+# Sort: highest p-value at top (most balanced variables at top, like the reference)
+results <- results %>%
+  arrange(desc(p_value)) %>%
+  mutate(y_pos = row_number())
+
+n <- nrow(results)
+
+# ---- 2. Smart number formatter ----
+fmt_num <- function(x) {
+  if (is.na(x) | is.nan(x)) return("NA")
+  if (abs(x) >= 1e9)  return(formatC(round(x / 1e9, 2), format = "f", digits = 2, big.mark = ","))
+  if (abs(x) >= 1e6)  return(format(round(x), big.mark = ",", scientific = FALSE))
+  if (abs(x) >= 1e3)  return(format(round(x), big.mark = ",", scientific = FALSE))
+  if (abs(x) >= 1)    return(as.character(round(x, 2)))
+  return(as.character(round(x, 2)))
+}
+
+results <- results %>%
+  rowwise() %>%
+  mutate(q_fmt  = fmt_num(q_mean),
+         nq_fmt = fmt_num(nq_mean)) %>%
+  ungroup()
+
+# ---- 3. Row shading helper ----
+shade_df <- results %>% filter(y_pos %% 2 == 0)
+
+# ---- 4. LEFT PANEL: table with variable names + means ----
+p_left <- ggplot(results, aes(y = y_pos)) +
+  # Alternating row shading
+  geom_rect(data = shade_df,
+            aes(xmin = -Inf, xmax = Inf, ymin = y_pos - 0.5, ymax = y_pos + 0.5),
+            fill = "grey92", color = NA, inherit.aes = FALSE) +
+  # Variable names
+  geom_text(aes(x = 0,   label = var_name), hjust = 1, size = 2.7) +
+  # Qualifier mean
+  geom_text(aes(x = 1.8, label = q_fmt),    hjust = 1, size = 2.7) +
+  # Non-qualifier mean
+  geom_text(aes(x = 3.4, label = nq_fmt),   hjust = 1, size = 2.7) +
+  # Column headers
+  annotate("text", x = 0,   y = n + 1.2, label = "Variable\nName",        hjust = 1, size = 3, fontface = "bold") +
+  annotate("text", x = 1.8, y = n + 1.2, label = "Qualifier\nMean",       hjust = 1, size = 3, fontface = "bold") +
+  annotate("text", x = 3.4, y = n + 1.2, label = "Non-qualifier\nMean",   hjust = 1, size = 3, fontface = "bold") +
+  scale_y_continuous(limits = c(0.5, n + 2), expand = c(0, 0)) +
+  scale_x_continuous(limits = c(-9.5, 3.8)) +
+  theme_void() +
+  theme(plot.margin = margin(t = 10, r = 0, b = 10, l = 5))
+
+# ---- 5. RIGHT PANEL: dot plot ----
+p_right <- ggplot(results, aes(x = p_value, y = y_pos)) +
+  # Alternating row shading (must match left panel)
+  geom_rect(data = shade_df,
+            aes(xmin = -Inf, xmax = Inf, ymin = y_pos - 0.5, ymax = y_pos + 0.5),
+            fill = "grey92", color = NA, inherit.aes = FALSE) +
+  # Dotted reference lines
+  geom_vline(xintercept = 0.05, linetype = "dotted", linewidth = 0.55, color = "grey30") +
+  geom_vline(xintercept = 0.10, linetype = "dotted", linewidth = 0.55, color = "grey30") +
+  # Dots
+  geom_point(size = 2.2, shape = 18) +   # shape 18 = filled diamond, like the reference
+  scale_x_continuous(
+    breaks = c(0.05, 0.1, 1),
+    labels = c("0.05", "0.1", "1"),
+    limits = c(0, 1.05),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(limits = c(0.5, n + 2), expand = c(0, 0)) +
+  labs(x = expression(italic(p) * "-value")) +
+  theme_bw() +
+  theme(
+    axis.title.y  = element_blank(),
+    axis.text.y   = element_blank(),
+    axis.ticks.y  = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.y = element_line(linewidth = 0.15, linetype = "dashed", color = "grey70"),
+    plot.margin = margin(t = 10, r = 10, b = 10, l = 0)
+  )
+
+# ---- 6. Title + note ----
+title_grob <- ggdraw() +
+  draw_label("Figure 2: Balance Between the Qualifiers and Non-qualifiers",
+             fontface = "bold", x = 0.5, hjust = 0.5, size = 11)
+
+note_grob <- ggdraw() +
+  draw_label("Notes: p-values are computed using two-tailed paired t-tests.",
+             fontface = "italic", x = 0.12, hjust = 0, size = 8.5)
+
+# ---- 7. Assemble ----
+main <- plot_grid(p_left, p_right, nrow = 1, rel_widths = c(1.4, 1))
+
+figure2 <- plot_grid(
+  title_grob, main, note_grob,
+  ncol = 1,
+  rel_heights = c(0.06, 1, 0.06)
+)
+
+print(figure2)
+ggsave("figure2_balance_mb1.pdf", figure2, width = 13, height = 10)
 ```
 
-  Which changes would you recommend, if any, for the analysis conducted in Q3 based on this finding? 
+## RDD Visualization
+```{r}
+library(ggplot2)
+library(dplyr)
 
-*Hint: to answer this question, it can be helpful to review the authors' discussion of the Regression Discontinuity Design Results.*
+#data1 <- data_more_balanced_3
+#data1 <- data_more_balanced_2
+data1 <- data_more_balanced_1
+
+dv_vars <- c("bicc_milper", "bicc_milexp", "bicc_gmi", "wdi_expmil", "v2paseatshare")
+
+dv_labels <- c(
+  "bicc_milper"   = "Military Personnel Index",
+  "bicc_milexp"   = "Military Expenditure Index",
+  "bicc_gmi"      = "Global Militarization Index",
+  "wdi_expmil"    = "Military Expenditure (% of GDP)",
+  "v2paseatshare" = "Nationalist Seat Share"
+)
+
+years_offset <- c(-5, -3, -1, 0, 1, 3, 5)
+
+year_labels <- c(
+  "-5" = "5 Years Before",
+  "-3" = "3 Years Before",
+  "-1" = "1 Year Before",
+   "0" = "World Cup Year",
+   "1" = "1 Year After",
+   "3" = "3 Years After",
+   "5" = "5 Years After"
+)
+
+data1 <- data1 %>% arrange(country_code, year)
+
+for (v in dv_vars) {
+  for (y in years_offset) {
+    
+    col_name <- paste0(v, ifelse(y < 0, paste0("_m", abs(y)),
+                          ifelse(y > 0, paste0("_p", y), "_t0")))
+    
+    if (y < 0) {
+      data1 <- data1 %>%
+        group_by(country_code) %>%
+        mutate(!!col_name := lag(.data[[v]], abs(y))) %>%
+        ungroup()
+    } else if (y > 0) {
+      data1 <- data1 %>%
+        group_by(country_code) %>%
+        mutate(!!col_name := lead(.data[[v]], y)) %>%
+        ungroup()
+    } else {
+      data1 <- data1 %>%
+        mutate(!!col_name := .data[[v]])
+    }
+  }
+}
+
+for (v in dv_vars) {
+  for (y in years_offset) {
+    
+    col_name <- paste0(v, ifelse(y < 0, paste0("_m", abs(y)),
+                          ifelse(y > 0, paste0("_p", y), "_t0")))
+    
+    plot_title <- paste0(dv_labels[[v]], " — ", year_labels[[as.character(y)]])
+    
+    p <- ggplot(data1, aes(x = points_diff,
+                           y = .data[[col_name]],       
+                           color = factor(treatment))) +
+      geom_point(alpha = 0.3) +
+      geom_smooth(method = "lm", se = FALSE) +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+      scale_x_continuous(
+        breaks = seq(min(data1$points_diff, na.rm = TRUE),
+                     max(data1$points_diff, na.rm = TRUE), by = 1)
+      ) +
+      scale_color_manual(
+        values = c("0" = "red", "1" = "blue"),
+        labels = c("Non-qualifier", "Qualifier"),
+        name   = "Group"
+      ) +
+      labs(
+        title = plot_title,
+        x     = "Points Margin",
+        y     = dv_labels[[v]]
+      ) +
+      theme_bw() +
+      theme(legend.position = "bottom")
+    
+    print(p) 
+    
+    # Optional: save each plot
+    # ggsave(paste0("rdd_", v, "_", y, "y.pdf"), p, width = 8, height = 5)
+  }
+}
+```
+
+## Manipulation? 
+```{r}
+
+ggplot(data, aes(x = points_diff)) +
+  geom_histogram(binwidth = 0.5, color = "black", fill = "grey70") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  scale_x_continuous(breaks = seq(min(data$points_diff, na.rm = TRUE),
+                                max(data$points_diff, na.rm = TRUE),
+                                by = 1)) +
+  labs(
+    x = "Running variable (margin)",
+    y = "Frequency",
+    title = "Manipulation Check") +
+  theme_bw()
+
+```
+
+## Cool Graph
+```{r}
+data <- data_more_balanced_1
+
+# MOYENNES (plus interprétable si groupes de tailles différentes)
+milex_d1 <- apply(data[data$treatment == 1, c("milex5yb", "milex3yb", "milex1yb", "milex", "milex1ya", "milex3ya", "milex5ya")], 2, mean, na.rm = TRUE)
+milex_d0 <- apply(data[data$treatment == 0, c("milex5yb", "milex3yb", "milex1yb", "milex", "milex1ya", "milex3ya", "milex5ya")], 2, mean, na.rm = TRUE)
+
+Year <- c(-5, -3, -1, 0, 1, 3, 5)
+
+tsdata <- data.frame(Year = Year, milex_d1 = milex_d1, milex_d0 = milex_d0)
+
+ggplot(tsdata, aes(x = Year)) + 
+  geom_line(aes(y = milex_d1), colour = "green4", linewidth = 1.2) + 
+  geom_line(aes(y = milex_d0), colour = "red3", linewidth = 1.2) + 
+  geom_hline(yintercept = 0, linetype = 1, color = "black") + 
+  geom_vline(xintercept = 0, linetype = 2, color = "red", linewidth = 0.8) + 
+  annotate("text", x = -0.3, y = max(c(milex_d1, milex_d0), na.rm = TRUE) * 0.95, 
+           angle = 90, label = "Qualification", size = 3.5, color = "red") + 
+  labs(title = "Military Expenditure Around World Cup Qualification",
+       subtitle = "Average military spending: qualifiers vs non-qualifiers") + 
+  ylab("Military Expenditure (% of GDP) - Mean per Group") + 
+  xlab("Years Since Qualification") + 
+  scale_fill_manual(name = "", values = "lightblue") +
+  theme_bw() + 
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = Year, labels = Year)
+
+```
 
 
-The McCrary check verifies if there is a statistically significant discontinuity in the density of the dependent variable at the cutoff. This would indicate sorting (= manipulation of the vote shareto end just above the threshold). 
-
-Here, there is no evidence for sorting, so no changes are required.
