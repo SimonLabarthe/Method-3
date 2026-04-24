@@ -1,7 +1,6 @@
 ---
 title: "ETH: METHOD III PROJECT"
-author: Jüttner, D., Labarthe, S., Prastalo, N.
-date: '2026'
+date: "2026"
 output:
   pdf_document: default
   html_document: default
