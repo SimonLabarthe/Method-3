@@ -1,18 +1,95 @@
 ---
-title: "METHOD III PROJECT"
-output: html_document
-date: "2026-04-17"
+title: "ETH: METHOD III DATABASE"
+author: "Jüttner, D., Labarthe, S., Prastalo, N."
+date: "2026"
+output:
+  pdf_document: default
+  html_document: default
 ---
+# CODEBOOK
 
-# DATA
-```{r}
-rm(list=ls())
-setwd("C:/Users/Simon/OneDrive/Documents/UNI/ETH/26a/Method III/Project/data")
-data <- read.csv("data.csv")
-```
+## Identification 
 
+* `match_id` - Unique numeric identifier for each match
+* `tournament_id` - Unique identifier for the World Cup tournament
+* `year` - Year of the World Cup tournament
+* `group_name` - Name of the qualification group (e.g., "Group A")
+* `group_stage` - Group stage identifier
+* `stage_name` - Stage of the competition ("group stage")
+* `match_date` - Date of the match (YYYY-MM-DD format)
+* `country_name` - Name of the focal country/team
+* `country_code` - ISO 3-letter country code (e.g., "FRA", "GER", "BRA")
+* `team_id` - Unique numeric identifier for the focal team
+* `opponent_name` - Name of the opposing country/team
+* `opponent_id` - Unique numeric identifier for the opponent
+* `opponent_code` - ISO 3-letter code of the opponent
+* `venue` - Match venue from focal team's perspective ("home" or "away")
+
+## Football variables
+
+* `goals_for` - Number of goals scored by focal team
+* `goals_against` - Number of goals conceded by focal team
+* `goal_difference` - Goals for minus goals against (goal_difference = goals_for - goals_against)
+* `win` - Binary indicator for win (1 = win, 0 = otherwise)
+* `draw` - Binary indicator for draw (1 = draw, 0 = otherwise)
+* `loss` - Binary indicator for loss (1 = loss, 0 = otherwise)
+* `points` - Points earned in match (3 for win, 1 for draw, 0 for loss)
+* `matches_played` - Total number of matches played by team in group stage
+* `wins` - Total number of wins in group stage
+* `draws` - Total number of draws in group stage
+* `losses` - Total number of losses in group stage
+* `rank` - Team's rank within the qualification group (1 = highest)
+* `teams_qualifying` - Number of teams that qualify from each group (1 for year <= 1970, 2 otherwise)
+* `qualified` - Binary indicator for World Cup qualification (1 = qualified, 0 = not qualified)
+* `min_qualifier_points` - Minimum points among teams that qualified in the group
+* `max_non_qualifier_points` - Maximum points among teams that did not qualify in the group
+* `points_gap` - Difference between min_qualifier_points and max_non_qualifier_points
+* `tie_at_cutoff` - Binary indicator for tie at qualification cutoff (1 = tie exists, 0 = otherwise)
+* `treatment` - Binary treatment variable (1 = qualified, 0 = not qualified)
+* `points_diff` - Running variable for RDD: points_gap if qualified, -points_gap if not qualified
+
+## Military variables
+
+* `bicc_milper` - Military Personnel Index (BICC, 1990-2023)
+* `bicc_milexp` - Military Expenditure Index (BICC, 1990-2023)
+* `bicc_gmi` - Global Militarization Index (BICC, 1990-2023)
+* `wdi_expmil` - Military expenditure as percentage of GDP (World Bank, 1960-2024)
+
+## Demographic variables
+
+* `wdi_pop` - Total population (World Bank, 1960-2024)
+* `wdi_pop_log` - Natural logarithm of total population
+* `wdi_popurb` - Urban population (World Bank, 1960-2024)
+* `wdi_birth` - Birth rate per 1,000 people (World Bank, 1960-2024)
+* `wdi_death` - Death rate per 1,000 people (World Bank, 1960-2024)
+* `wdi_mortinf` - Infant mortality per 1,000 live births (World Bank, 1960-2024)
+* `wdi_lifexp` - Life expectancy at birth in years (World Bank, 1960-2023)
+* `wpp_medianage` - Median age as of July 1 (UN World Population Prospects, 1950-2024)
+* `wpp_sexratio` - Sex ratio (males per 100 females) (UN World Population Prospects, 1950-2024)
+
+## Economic variables
+
+* `wdi_export` - Exports of goods and services as percentage of GDP (World Bank, 1960-2024)
+* `wdi_import` - Imports of goods and services as percentage of GDP (World Bank, 1960-2024)
+* `wdi_gdpcapcon2015` - GDP per capita in constant 2015 US dollars (World Bank, 1960-2024)
+* `wdi_gdpgr` - GDP growth rate (annual percentage) (World Bank, 1961-2024)
+* `wdi_area` - Land area in square kilometers (World Bank, 1961-2023)
+
+## Political variables
+
+* `vdem_polyarchy` - Electoral democracy index (VDEM, 1946-2024)
+* `ht_colonial` - Colonial origin indicator (HT, 1946-2025)
+* `atop_number` - Number of alliances (ATOP, 1946-2025)
+* `v2paseatshare` - Seat share of nationalist parties in parliament (VDEM)
+
+## Notes
+
+* `NA` - Missing values are present for some variables due to data availability limitations
+* Time coverage varies by variable as indicated in parentheses above
+
+# DATABASE REPLICATION
 ## Nationalism (share of seat in parliament)
-```{r}
+```{r, eval = F}
 #install.packages("remotes")  
 remotes::install_github("vdeminstitute/vdemdata")
 
@@ -30,8 +107,11 @@ vp <- vparty %>%
 ```
 
 ## QOG
-```{r}
-qog <- read.csv("qog_std_ts_jan26.csv") %>% 
+```{r, eval = F}
+library(readr)
+
+url_data <- "https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/qog.rds"
+qog <- read_rds(url_data) %>% 
   rename(country_name = cname, 
          country_code = ccodealp) %>% 
   select(
@@ -76,7 +156,7 @@ summary(qog)
 ```
 
 ## FIFA World Cup
-```{r}
+```{r, eval = F}
 remotes::install_github("jfjelstul/worldcup")
 
 library(tidyverse)
@@ -219,47 +299,14 @@ tight_races <- qualification_standings %>%
 ```
 
 ## Merge
-```{r}
+```{r, eval = F}
 library(countries)
 
 data <- tight_races %>%
   left_join(qog, by = c("country_code", "year")) %>%
-  left_join(vp, by = c("country_code", "year"))
-
-data <- data %>% 
-  mutate(
-    milex = wdi_expmil,
-    milex5yb = lag(milex, 5), 
-    milex3yb = lag(milex, 3), 
-    milex1yb = lag(milex, 1), 
-    milex5ya = lead(milex, 5), 
-    milex3ya = lead(milex, 3), 
-    milex1ya = lead(milex, 1), 
-    dmilex = round((milex-lag(milex, 1)), 
-                        digits = 2), 
-    dmilex5yb = lag(dmilex, 5),
-    dmilex3yb = lag(dmilex, 3),
-    dmilex1yb = lag(dmilex, 1),
-    dmilex5ya = lead(dmilex, 5), 
-    dmilex3ya = lead(dmilex, 3), 
-    dmilex1ya = lead(dmilex, 1)) %>% 
+  left_join(vp, by = c("country_code", "year")) %>% 
   filter(!is.na(treatment), 
          points_diff != "Inf") 
-
-summary(data)
-
-write.csv(data, "C:/Users/Simon/OneDrive/Documents/UNI/ETH/26a/Method III/Project/data/data.csv")
-
-data_NA <- data %>% na.omit()
-
-data_more_balanced_3 <- data %>% 
-  filter(points_gap <= 3)
-
-data_more_balanced_2 <- data %>% 
-  filter(points_gap <= 2)
-
-data_more_balanced_1 <- data %>% 
-  filter(points_gap <= 1)
 ```
 
 
