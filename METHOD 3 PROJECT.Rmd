@@ -1,0 +1,298 @@
+---
+title: "ETH: METHOD III PROJECT"
+date: "2026"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# LOAD DATA
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+
+rm(list=ls())
+
+url_data <- "https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/data.rds"
+data <- read_rds(url_data) %>% 
+  mutate(y1 = v2exl_legitideolcr_0_1, 
+         y3 = v2exl_legitideolcr_0_3, 
+         d = treatment, 
+         z = points_diff) %>%
+  select(iso3c, 
+         year, 
+         y1, 
+         y3, 
+         d, 
+         z, 
+         everything(), 
+         -v2exl_legitideolcr_0_1, 
+         -v2exl_legitideolcr_0_3, 
+         -treatment, 
+         -points_diff)
+
+x <- data[, 8:19]
+```
+
+# ASSUMPTIONS CHECK
+## Covariates Visualization P-Value
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# datasets to test
+datasets <- c("data")
+
+# Covariates
+vars <- names(x)
+
+better_names <- sapply(vars, function(var) {
+  label <- attr(data[[var]], "label")
+  if(is.null(label)) var else label  
+})
+
+plot_list <- list()
+
+for(d in datasets) {
+  data_current <- get(d)
+  balance_p <- rep(NA, length(vars))
+
+  for(i in seq_along(vars)){
+    temp_mod <- lm(
+      as.formula(paste(vars[i], "~ d")),
+      data = data_current[, c(vars[i], "d")]
+    )
+    balance_p[i] <- summary(temp_mod)$coefficients[2, 4]
+  }
+  
+  # new dataframe for graph
+  df <- data.frame(vars = vars, balance_p = balance_p, better_names = better_names)
+  df$y <- rank(-df$balance_p, ties.method = "first")
+  
+  # extract p-values
+  cat("\n========== Dataset:", d, "==========\n")
+  print(data.frame(Variable = better_names, P_value = round(balance_p, 4)))
+  
+  # graph
+  p <- ggplot(df, aes(x = balance_p, y = y)) +
+    geom_point(size = 2, color = "darkblue") +
+    scale_x_continuous(expand = c(0,0), limit = c(-0.01, 1.01), 
+                       breaks = c(0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
+    xlab(expression(paste(italic("p"), "-value", sep = ""))) +
+    scale_y_continuous(breaks = df$y, labels = df$better_names) +
+    ylab(NULL) +
+    geom_vline(xintercept = 0.05, lty = 2, color = "red", linewidth = 0.8) +
+    geom_vline(xintercept = 0.10, lty = 2, color = "orange", linewidth = 0.8) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(linewidth = 0.15, linetype = "dashed"))
+  
+  print(p)
+  plot_list[[d]] <- p
+  ggsave(paste0("balance_plot_", d, ".png"), p, width = 10, height = 6)
+}
+
+grid.arrange(grobs = plot_list, ncol = 2)
+ggsave("balance_plots_combined.png", 
+       arrangeGrob(grobs = plot_list, ncol = 2), 
+       width = 16, height = 8)
+```
+
+## Covariates Visualization Mean Comparison
+```{r}
+# datasets to test
+datasets <- c("data")
+
+# Covariates
+balance_results <- list()
+
+for (d in datasets) { 
+  data_current <- get(d)
+  
+  balance_table <- data.frame(
+    variable = better_names,
+    control_mean = NA,
+    treatment_mean = NA
+    )
+
+  for (i in seq_along(vars)) {
+    v <- vars[i]
+    balance_table$treatment_mean[i] <- mean(data_current[[v]][data_current$d == 1], na.rm = TRUE)
+    balance_table$control_mean[i] <- mean(data_current[[v]][data_current$d == 0], na.rm = TRUE)
+  }
+
+  balance_table <- balance_table %>%
+    mutate(
+      difference = treatment_mean - control_mean,
+      treatment_mean = round(treatment_mean, 2),
+      control_mean = round(control_mean, 2),
+      difference = round(difference, 2)
+    )
+
+    balance_results[[d]] <- balance_table
+} 
+
+balance_results[["data"]]
+```
+
+## Manipulation
+```{r}
+png("manipulation.png")
+ggplot(data, aes(x = z)) +
+  geom_histogram(binwidth = 1,
+                 color = "black",
+                 fill = "darkgrey") +
+  geom_density(aes(y = ..density.. * nrow(data) * 0.5),
+               color = "darkblue",
+               linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  scale_y_continuous(
+    name = "Frequency",
+    sec.axis = sec_axis(~ . / (nrow(data) * 0.5),
+                        name = "Density")) +
+  scale_x_continuous(
+    breaks = seq(min(data$z, na.rm = TRUE),
+                 max(data$z, na.rm = TRUE),
+                 by = 1)) +
+  labs(
+    x = "Running variable (margin)",
+    title = "Manipulation Check") +
+  theme_bw()
+
+dev.off()
+
+# McCrary Test------------------------------------------------------------------
+
+#install.packages("rddensity")
+library(rddensity)
+
+result <- rddensity(X = data_bw5$z, c = 0)
+summary(result)
+```
+
+# RDD MODEL
+```{r}
+library(rdrobust)
+
+model_sharp <- rdrobust(y = data_bw5$y_3,
+         x = data_bw5$points_diff,
+         c = 0,
+         p = 1, 
+         kernel = "tri",
+         h = 5,
+         masspoints = "adjust")
+
+summary(model_sharp)
+
+model_sharp <- rdrobust(y = data_bw5$y_3,
+         x = data_bw5$points_diff,
+         c = 0,
+         p = 1, 
+         kernel = "tri",
+         bwselect = "mserd",
+         masspoints = "adjust")
+
+summary(model_sharp)
+```
+
+## Linear model
+```{r}
+library(stargazer)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+
+model1 <- lm(y1 ~ d, 
+             data = data)
+summary(model1)
+
+model2 <- lm(data$y1 ~ data$d + ., 
+          data = x)
+summary(model2)
+```
+
+```{r}
+get_labels <- function(model, data) {
+  vars <- names(coef(model))[-1]
+  labels <- sapply(vars, function(x) {
+    lbl <- attr(data[[x]], "label")
+    if(is.null(lbl)) x else lbl
+  })
+  return(labels)
+}
+
+stargazer(model1, model2,
+          type = "html",
+          out = "table_models.html",
+          title = "Regression Results",
+          align = TRUE,
+          no.space = TRUE,
+          covariate.labels = get_labels(model2, data),
+          dep.var.labels = c("Nationalism (t+1)"),
+          omit.stat = c("f", "ser"),
+          digits = 3)
+```
+
+# RDD VISUALISATION
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Graphique unique pour y1
+p <- ggplot(data, aes(x = z,
+                       y = y1,       
+                       color = factor(d))) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  scale_x_continuous(
+    breaks = seq(min(data$z, na.rm = TRUE),
+                 max(data$z, na.rm = TRUE), by = 1)
+  ) +
+  scale_color_manual(
+    values = c("0" = "red", "1" = "darkblue"),
+    labels = c("Non-qualifier", "Qualifier"),
+    name   = "Status"
+  ) +
+  labs(
+    x     = "Points Margin",
+    y     = "Nationalism (t+1)" 
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+# Afficher
+print(p)
+
+# Sauvegarder
+ggsave("rdd_plot_y1.png", p, width = 10, height = 6)
+```
+
+# ROBUSTNESS CHECK WITHOUT c = 0 cases
+```{r}
+data_bw5 %>%
+group_by(points_diff) %>%
+summarise(
+mean_nationalism = mean(y, na.rm = TRUE),
+n = n()
+) %>%
+arrange(points_diff)
+
+data_bw5_null <- data_bw5 %>% 
+  filter(points_diff != 0)
+
+rdplot(
+y = data_bw5_null$y,
+x= data_bw5_null$points_diff,
+c= 0,
+p= 1,
+h= 3,
+masspoints = "adjust",
+title= "Sharp RD: Qualification → Nationalism",
+x.label= "Points Margin",
+y.label= "Nationalism (1 year after)"
+)
+```
+
