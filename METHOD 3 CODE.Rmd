@@ -1,0 +1,648 @@
+---
+title: "METHOD 3"
+author: "Jüttner, D., Labarthe, S., and Prastalo, N."
+date: "2026"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# 1. CODEBOOK
+* `iso3c` - ISO 3-letter country code
+* `year` - Tournament year
+* `v2exl_legitideolcr_0_1` - Nationalism (1 year lead)
+* `v2exl_legitideolcr_0_3` - Nationalism (3 year lead)
+* `treatment` - World Cup qualification treatment
+* `points_gap` - Points gap between last qualifier and first non-qualifier
+* `points_diff` - Assignment variable (points margin from cutoff)
+* `wdi_expmil` - Military expenditure (% of GDP)
+* `wdi_pop_log` - Total population (log)
+* `wdi_popurb` - Urban population
+* `wdi_lifexp` - Life expectancy at birth
+* `wdi_export` - Exports of goods and services (% of GDP)
+* `wdi_import` - Imports of goods and services (% of GDP)
+* `wdi_gdpcapcon2015` - GDP per capita (constant 2015 US$)
+* `wdi_gdpgr` - GDP growth (annual %)
+* `wdi_area` - Land area (sq. km)
+* `wpp_medianage` - Median age of population
+* `wpp_sexratio` - Sex ratio (males per 100 females)
+* `vdem_polyarchy` - Polyarchy (electoral democracy index)
+
+# 2. DATABASE REPLICATION
+```{r, eval = F}
+## a. VDEM 
+library(dplyr)
+library(countrycode)
+library(countries)
+library(tidyr)
+library(readr)
+
+vdem <- read_rds("https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/vdem.rds") %>%  
+  mutate(v2exl_legitideolcr_0_1 = lead(v2exl_legitideolcr_0, 1), 
+         v2exl_legitideolcr_0_3 = lead(v2exl_legitideolcr_0, 3)) 
+
+vdem_clean <- vdem %>%
+  mutate(iso3c = country_name(vdem$country_name, 
+                              to = "ISO3", 
+                              fuzzy_match = TRUE,
+                              verbose = FALSE)) %>%
+  filter(!is.na(iso3c))
+
+## b. QOG
+url_data <- "https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/qog.rds"
+qog <- read_rds(url_data) %>% 
+  rename(country_name = cname) %>% 
+  select(
+    country_name,
+    year,
+
+    wdi_expmil,         # Military expenditure % of GDP (i = 163, t=1960-2024))
+
+    wdi_pop,            # Total Population (i = 192, t = 1960-2024)
+    wdi_popurb,         # Urban Population (i = 192, t = 1960-2024)
+    wdi_lifexp,         # Life Expectancy at birth (per 1,000 live births) (i = 192, t = 1960-2023)
+
+    wpp_medianage,      # Median Age as of 1 July (WPP) (i = 192, t = 1950-2024)
+    wpp_sexratio,       # Sex Ratio: males per 100 females (WPP) (i = 192, t = 1950-2024)
+
+
+    wdi_export,         # Exports of goods & services (% of GDP) (i = 173, t = 1960-2024)
+    wdi_import,         # Imports of goods & services (% of GDP) (i = 173, t = 1960-2024)
+    wdi_gdpcapcon2015,  # GDP per capita (constant 2015 US dollar) (i = 191, t = 1960-2024)
+    wdi_gdpgr,          # GDP growth (annual %) (i = 191, t = 1961-2024)
+
+    wdi_area,           # Land area in sq. km (i = 191, t = 1961-2023)
+
+    vdem_polyarchy     # Democracy level (i = 175, t = 1946-2024)
+  ) %>% 
+  mutate(
+    wdi_pop_log = log(wdi_pop)
+  )
+
+qog_clean <- qog %>%
+  mutate(iso3c = country_name(country_name, # here again
+                             to = "ISO3", 
+                             fuzzy_match = TRUE,
+                             verbose = FALSE)) %>%
+  filter(!is.na(iso3c))
+
+## c. FIFA World Cup
+library(tidyverse)
+library(worldcup)
+library(lubridate)
+
+data("matches")
+data("tournaments")
+data("teams")
+data("qualified_teams")
+
+qualification_matches <- matches %>%
+  filter(stage_name == "group stage") %>%
+  mutate(
+    year = as.numeric(str_extract(tournament_name, "\\d{4}"))
+  ) %>%
+  filter(year %% 2 == 0) %>% # males only
+  mutate(
+    home_team_name = if_else(home_team_name == "England", "United Kingdom", home_team_name), # England as United Kingdom
+    home_iso3c = country_name(home_team_name, to = "ISO3", fuzzy_match = TRUE, verbose = FALSE), 
+    
+    away_team_name = if_else(away_team_name == "England", "United Kingdom", away_team_name),
+    away_iso3c = country_name(away_team_name, to = "ISO3", fuzzy_match = TRUE, verbose = FALSE) 
+  ) %>%
+  filter(!is.na(home_iso3c), !is.na(away_iso3c))
+
+home_team_matches <- qualification_matches %>%
+  select(
+    tournament_id, 
+    iso3c = home_iso3c,  
+    year, match_id, match_date,
+    group_name, group_stage, stage_name,
+    country_name = home_team_name,
+    opponent_name = away_team_name,
+    goals_for = home_team_score,
+    goals_against = away_team_score,
+    win = home_team_win, draw, loss = away_team_win
+  ) %>%
+  mutate(points = case_when(win == 1 ~ 3, draw == 1 ~ 1, TRUE ~ 0),
+         goal_difference = goals_for - goals_against,
+         venue = "home")
+
+away_team_matches <- qualification_matches %>%
+  select(
+    tournament_id,
+    iso3c = away_iso3c,  
+    year, match_id, match_date,
+    group_name, group_stage, stage_name,
+    country_name = away_team_name,
+    opponent_name = home_team_name,
+    goals_for = away_team_score,
+    goals_against = home_team_score,
+    win = away_team_win, draw, loss = home_team_win
+  ) %>%
+  mutate(points = case_when(win == 1 ~ 3, draw == 1 ~ 1, TRUE ~ 0),
+         goal_difference = goals_for - goals_against,
+         venue = "away")
+
+monadic_matches <- bind_rows(home_team_matches, away_team_matches)
+
+qualification_standings <- monadic_matches %>%
+  group_by(year, group_name, iso3c) %>%
+  summarise(
+    matches_played = n(),
+    wins = sum(win, na.rm = TRUE),
+    draws = sum(draw, na.rm = TRUE),
+    losses = sum(loss, na.rm = TRUE),
+    goals_for = sum(goals_for, na.rm = TRUE),
+    goals_against = sum(goals_against, na.rm = TRUE),
+    goal_difference = sum(goal_difference, na.rm = TRUE),
+    points = sum(points, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(year, group_name, desc(points), desc(goal_difference), desc(goals_for))
+
+qualification_standings <- qualification_standings %>%
+  group_by(year, group_name) %>%
+  mutate(
+    rank = row_number(),
+    teams_qualifying = if_else(year <= 1970, 1, 2), # number of qualified teams
+    qualified = if_else(rank <= teams_qualifying, 1, 0)
+  ) %>%
+  ungroup()
+
+# filter : keep only tight races
+tight_races <- qualification_standings %>%
+  group_by(year, group_name) %>%
+  mutate(
+    min_qualifier_points = min(points[qualified == 1], na.rm = TRUE),
+    max_non_qualifier_points = max(points[qualified == 0], na.rm = TRUE),
+    points_gap = min_qualifier_points - max_non_qualifier_points
+  ) %>%
+  ungroup() %>%
+  filter((qualified == 1 & points == min_qualifier_points) |
+         (qualified == 0 & points == max_non_qualifier_points)) %>%
+  mutate(
+    treatment = qualified,
+    points_diff = if_else(qualified == 1, points_gap, -points_gap)
+  )
+
+## d. Merge
+data <- tight_races %>%
+  left_join(qog_clean, by = c("iso3c", "year")) %>% 
+  left_join(vdem_clean, by = c("iso3c", "year")) %>% 
+  filter(!is.na(treatment), 
+         points_diff != "Inf") 
+
+data <- data %>% 
+  select(iso3c, year, v2exl_legitideolcr_0_1, v2exl_legitideolcr_0_3,  treatment, points_gap, points_diff, wdi_expmil, wdi_pop_log, wdi_popurb, wdi_lifexp, wdi_export, wdi_import, wdi_gdpcapcon2015, wdi_gdpgr, wdi_area, wpp_medianage, wpp_sexratio, vdem_polyarchy) %>% na.omit()
+
+library(labelled)
+
+var_labels <- c(
+  "iso3c" = "ISO 3-letter country code",
+  "year" = "Tournament year",
+  "v2exl_legitideolcr_0_1" = "Nationalism (1 year lead)",
+  "v2exl_legitideolcr_0_3" = "Nationalism (3 year lead)",
+  "treatment" = "Treatment: World Cup qualification (1=qualified, 0=non-qualified)",
+  "points_gap" = "Points gap between last qualifier and first non-qualifier",
+  "points_diff" = "Assignment variable: points margin from cutoff (positive=qualified)",
+  "wdi_expmil" = "Military expenditure (% of GDP)",
+  "wdi_pop_log" = "Total population (log)",
+  "wdi_popurb" = "Urban population",
+  "wdi_lifexp" = "Life expectancy at birth",
+  "wdi_export" = "Exports of goods and services (% of GDP)",
+  "wdi_import" = "Imports of goods and services (% of GDP)",
+  "wdi_gdpcapcon2015" = "GDP per capita (constant 2015 US$)",
+  "wdi_gdpgr" = "GDP growth (annual %)",
+  "wdi_area" = "Land area (sq. km)",
+  "wpp_medianage" = "Median age of population",
+  "wpp_sexratio" = "Sex ratio (males per 100 females)",
+  "vdem_polyarchy" = "Polyarchy (electoral democracy index)"
+)
+
+data <- labelled::set_variable_labels(data, .labels = var_labels)
+
+look_for(data)
+
+test <- data %>% 
+  group_by(iso3c, year) %>% 
+  slice(1) %>% 
+  na.omit()
+
+saveRDS(data, "data.rds")
+```
+
+# 3. LOAD DATA IN CLEAN ENVIRONMENT
+
+```{r}
+library(dplyr)
+library(readr)
+library(ggplot2)
+
+rm(list=ls())
+
+url_data <- "https://raw.githubusercontent.com/SimonLabarthe/Method-3/main/data.rds"
+
+data <- read_rds(url_data) %>% 
+  mutate(y1 = v2exl_legitideolcr_0_1, 
+         y3 = v2exl_legitideolcr_0_3, 
+         d = treatment, 
+         z = points_diff) %>%
+  select(iso3c, 
+         year, 
+         y1, 
+         y3, 
+         d, 
+         z, 
+         everything(), 
+         -v2exl_legitideolcr_0_1, 
+         -v2exl_legitideolcr_0_3, 
+         -treatment, 
+         -points_diff)
+
+x <- data[, 8:19]
+```
+
+# 4. ASSUMPTIONS CHECK
+## a. Covariates Visualization P-Value
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+data_c0 <- data %>% filter(data$z == 0) # on the cutoff
+data_bw1 <- data %>% filter(data$z >= -1 & data$z <= 1) # around the cutoff
+
+# datasets to test
+datasets <- c("data", "data_bw1", "data_c0") # multiple datasets possible
+
+# Covariates
+vars <- names(x)
+
+# add labs
+better_names <- sapply(vars, function(var) {
+  label <- attr(data[[var]], "label")
+  if(is.null(label)) var else label  
+})
+
+plot_list <- list()
+
+# plot the p-values
+for(d in datasets) {
+  data_current <- get(d)
+  balance_p <- rep(NA, length(vars))
+
+  for(i in seq_along(vars)){
+    temp_mod <- lm(
+      as.formula(paste(vars[i], "~ d")),
+      data = data_current[, c(vars[i], "d")]
+    )
+    balance_p[i] <- summary(temp_mod)$coefficients[2, 4]
+  }
+  
+  # new dataframe for graph
+  df <- data.frame(vars = vars, balance_p = balance_p, better_names = better_names)
+  df$y <- rank(-df$balance_p, ties.method = "first")
+  
+  # extract p-values
+  cat("\n========== Dataset:", d, "==========\n")
+  print(data.frame(Variable = better_names, P_value = round(balance_p, 4)))
+  
+  # graph
+  p <- ggplot(df, aes(x = balance_p, y = y)) +
+    geom_point(size = 2, color = "darkblue") +
+    scale_x_continuous(expand = c(0,0), limit = c(-0.01, 1.01), 
+                       breaks = c(0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
+    xlab(expression(paste(italic("p"), "-value", sep = ""))) +
+    scale_y_continuous(breaks = df$y, labels = df$better_names) +
+    ylab(NULL) +
+    geom_vline(xintercept = 0.05, lty = 2, color = "red", linewidth = 0.8) +
+    geom_vline(xintercept = 0.10, lty = 2, color = "orange", linewidth = 0.8) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_line(linewidth = 0.15, linetype = "dashed"))
+  
+  print(p)
+  plot_list[[d]] <- p
+  ggsave(paste0("balance_plot_", d, ".png"), p, width = 10, height = 6)
+}
+```
+
+## b. Covariates Visualization Mean Comparison
+
+```{r}
+# datasets to test
+datasets <- c("data", "data_bw1", "data_c0") # multiple datasets possible
+
+# Covariates
+balance_results <- list()
+
+# plot the substantial differences
+for (d in datasets) { 
+  data_current <- get(d)
+  
+  balance_table <- data.frame(
+    variable = better_names,
+    control_mean = NA,
+    treatment_mean = NA
+    )
+
+  for (i in seq_along(vars)) {
+    v <- vars[i]
+    balance_table$treatment_mean[i] <- mean(data_current[[v]][data_current$d == 1], na.rm = TRUE)
+    balance_table$control_mean[i] <- mean(data_current[[v]][data_current$d == 0], na.rm = TRUE)
+  }
+
+  balance_table <- balance_table %>%
+    mutate(
+      difference = treatment_mean - control_mean,
+      treatment_mean = round(treatment_mean, 2),
+      control_mean = round(control_mean, 2),
+      difference = round(difference, 2)
+    )
+
+    balance_results[[d]] <- balance_table
+} 
+
+balance_results[["data"]]
+balance_results[["data_bw1"]]
+balance_results[["data_c0"]]
+```
+
+## c. Manipulation
+
+```{r}
+manipulation <- ggplot(data, aes(x = z)) +
+  geom_histogram(binwidth = 1,
+                 color = "black",
+                 fill = "darkgrey") +
+  geom_density(aes(y = ..density.. * nrow(data) * 0.5),
+               color = "darkblue",
+               linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  scale_y_continuous(
+    name = "Frequency",
+    sec.axis = sec_axis(~ . / (nrow(data) * 0.5),
+                        name = "Density")) +
+  scale_x_continuous(
+    breaks = seq(min(data$z, na.rm = TRUE),
+                 max(data$z, na.rm = TRUE),
+                 by = 1)) +
+  labs(x = "Running variable (margin)") +
+  theme_bw()
+
+manipulation
+ggsave("manipulation.png", manipulation, width = 10, height = 6)
+
+# McCrary Test------------------------------------------------------------------
+
+#install.packages("rddensity")
+library(rddensity)
+
+result <- rddensity(X = data$z, c = 0)
+summary(result)
+```
+
+# 5. RDD MODELS
+
+## a. Run
+
+```{r}
+library(rdrobust)
+
+# Variable "z" is our running variable
+model_h5 <- rdrobust(y = data$y1,
+         x = data$z,
+         c = 0,
+         p = 1, 
+         kernel = "tri",
+         h = 5,
+         masspoints = "adjust")
+
+summary(model_h5)
+
+model_mserd <- rdrobust(y = data$y1,
+         x = data$z,
+         c = 0,
+         p = 0, 
+         kernel = "tri",
+         bwselect = "mserd",
+         masspoints = "adjust")
+
+summary(model_mserd)
+
+model_cerrd <- rdrobust(y = data$y1, 
+                        x = data$z, 
+                        c = 0, 
+                        p = 0, 
+                        kernel = "tri", 
+                        bwselect = "cerrd", 
+                        masspoints = "adjust")
+
+summary(model_cerrd)
+```
+
+## b. Extract data and print table
+
+```{r}
+library(rdrobust)
+library(stargazer)
+library(webshot)
+
+# model selection
+models <- list(
+  h5 = model_h5,
+  mserd = model_mserd,
+  cerrd = model_cerrd
+)
+
+# extract the values
+extract_rdd_results <- function(model, model_name) {
+data.frame(
+    Model = model_name,
+    Estimate = model$coef[1],           # Robust estimate
+    SE = model$se[3],                   # Robust SE
+    CI_lower = model$ci[3,1],           # Robust CI lower
+    CI_upper = model$ci[3,2],           # Robust CI upper
+    p_value = model$pv[3],              # Robust p-value
+    Eff_N_total = sum(model$N_h),       # Total effective N
+    Bandwidth = model$bws[1,1],         # Bandwidth
+    stringsAsFactors = FALSE
+  )
+}
+
+results_list <- lapply(names(models), function(name) {
+  extract_rdd_results(models[[name]], name)
+})
+
+# create the table
+results_table <- do.call(rbind, results_list)
+results_table_formatted <- results_table %>%
+  mutate(
+    Estimate = sprintf("%.4f", Estimate),
+    CI_95 = sprintf("[%.4f, %.4f]", CI_lower, CI_upper),
+    `p-value` = sprintf("%.4f", p_value),
+    `Eff. N` = sprintf("%d", Eff_N_total),
+    `Bandwidth` = sprintf("%.2f", Bandwidth)
+  ) %>%
+  select(Model, Estimate, CI_95, `p-value`, `Eff. N`, `Bandwidth`)
+
+print(results_table_formatted)
+
+# LaTeX visualisation
+stargazer(results_table_formatted, 
+                    summary = FALSE, 
+          rownames = FALSE, 
+          type = "latex",
+          out = "rdd_table.tex")
+```
+
+# 6. RDD VISUALISATION
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# visualisation
+p <- ggplot(data, aes(x = z,
+                       y = y1,       
+                       color = factor(d))) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  scale_x_continuous(
+    breaks = seq(min(data$z, na.rm = TRUE),
+                 max(data$z, na.rm = TRUE), by = 1)
+  ) +
+  scale_color_manual(
+    values = c("0" = "red", "1" = "darkblue"),
+    labels = c("Non-qualifier", "Qualifier"),
+    name   = "Status"
+  ) +
+  labs(
+    x     = "Points Margin",
+    y     = "Nationalism (t+1)" 
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+print(p)
+
+ggsave("rdd_plot_y1.png", p, width = 10, height = 6)
+```
+
+# 7. ROBUSTNESS CHECK WITHOUT c = 0 CASES
+
+## a. Refit without the c = 0
+
+```{r}
+library(rdrobust)
+
+data_null <- data %>% 
+  filter(points_gap != 0)
+
+nrow(data_null) # 132
+
+attach(data_null)
+
+model_h5_null <- rdrobust(y = y1,
+         x = z,
+         c = 0,
+         p = 1, 
+         kernel = "tri",
+         h = 5,
+         masspoints = "adjust")
+
+summary(model_h5_null)
+```
+
+## b. Extract data and print table
+
+```{r}
+library(rdrobust)
+library(stargazer)
+library(webshot)
+
+models <- list(
+  h5 = model_h5_null
+)
+
+extract_rdd_results <- function(model, model_name) {
+data.frame(
+    Model = model_name,
+    Estimate = model$coef[1],           # Estimate
+    SE = model$se[3],                   # Robust SE
+    CI_lower = model$ci[3,1],           # Robust CI lower
+    CI_upper = model$ci[3,2],           # Robust CI upper
+    p_value = model$pv[3],              # Robust p-value
+    Eff_N_total = sum(model$N_h),       # Total effective N
+    Bandwidth = model$bws[1,1],         # Bandwidth
+    stringsAsFactors = FALSE
+  )
+}
+
+results_list <- lapply(names(models), function(name) {
+  extract_rdd_results(models[[name]], name)
+})
+
+results_table <- do.call(rbind, results_list)
+results_table_formatted <- results_table %>%
+  mutate(
+    Estimate = sprintf("%.4f", Estimate),
+    CI_95 = sprintf("[%.4f, %.4f]", CI_lower, CI_upper),
+    `p-value` = sprintf("%.4f", p_value),
+    `Eff. N` = sprintf("%d", Eff_N_total),
+    `Bandwidth` = sprintf("%.2f", Bandwidth)
+  ) %>%
+  select(Model, Estimate, CI_95, `p-value`, `Eff. N`, `Bandwidth`)
+
+print(results_table_formatted)
+
+stargazer(results_table_formatted, 
+                    summary = FALSE, 
+          rownames = FALSE, 
+          type = "latex",
+          out = "rdd_check_table.tex")
+```
+
+## c. graphs
+
+```{r}
+p_null <- ggplot(data_null, aes(x = z,
+                       y = y1,       
+                       color = factor(d))) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  scale_x_continuous(
+    breaks = seq(min(data$z, na.rm = TRUE),
+                 max(data$z, na.rm = TRUE), by = 1)
+  ) +
+  scale_color_manual(
+    values = c("0" = "red", "1" = "darkblue"),
+    labels = c("Non-qualifier", "Qualifier"),
+    name   = "Status"
+  ) +
+  labs(
+    x     = "Points Margin",
+    y     = "Nationalism (t+1)" 
+  ) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+print(p_null)
+
+ggsave("rdd_robustness_y1.png", p_null, width = 8, height = 6)
+```
+
+## d. Placebo checks
+
+```{r}
+library(rddensity)
+
+rdd_dens <- rddensity(X=data$z,c=0)
+summary(rdd_dens)
+
+rdplotdensity(rdd_dens, data$z)
+```
+
+
